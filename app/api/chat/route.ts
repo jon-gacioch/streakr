@@ -62,10 +62,11 @@ export async function POST(req: Request) {
       try {
         const openai = getOpenAIClient();
 
-        // Track the last route and elevation results from tool calls
-        let lastRouteResult: Record<string, unknown> | null = null;
-        let lastElevationResult: Record<string, unknown> | null = null;
-        let lastWaypoints: [number, number][] | null = null;
+        const state = {
+          route: null as Record<string, unknown> | null,
+          elevation: null as Record<string, unknown> | null,
+          waypoints: null as [number, number][] | null,
+        };
 
         const UNFINISHED_RE =
           /\b(let me adjust|stay tuned|refin(e|ing)|too (long|short)|working on|I'll (try|refine|adjust)|iterating)\b/i;
@@ -95,9 +96,9 @@ export async function POST(req: Request) {
             if (
               fnName === "get_elevation" &&
               !fnArgs.route_geometry &&
-              lastRouteResult?.geometry
+              state.route?.geometry
             ) {
-              fnArgs.route_geometry = lastRouteResult.geometry;
+              fnArgs.route_geometry = state.route.geometry;
             }
 
             send({ type: "tool_start", name: fnName });
@@ -123,8 +124,8 @@ export async function POST(req: Request) {
                 typeof result === "object" &&
                 !("error" in (result as Record<string, unknown>))
               ) {
-                lastRouteResult = result as Record<string, unknown>;
-                lastWaypoints = fnArgs.waypoints;
+                state.route = result as Record<string, unknown>;
+                state.waypoints = fnArgs.waypoints;
               }
               if (
                 fnName === "get_elevation" &&
@@ -132,7 +133,7 @@ export async function POST(req: Request) {
                 typeof result === "object" &&
                 !("error" in (result as Record<string, unknown>))
               ) {
-                lastElevationResult = result as Record<string, unknown>;
+                state.elevation = result as Record<string, unknown>;
               }
 
               toolMessages.push({
@@ -176,7 +177,7 @@ export async function POST(req: Request) {
           nudgesUsed < MAX_NUDGES &&
           message.content &&
           UNFINISHED_RE.test(message.content) &&
-          lastRouteResult
+          state.route
         ) {
           nudgesUsed++;
           console.log(
@@ -208,25 +209,25 @@ export async function POST(req: Request) {
         const routeFinalized =
           !message.content || !UNFINISHED_RE.test(message.content);
 
-        if (lastRouteResult && routeFinalized) {
+        if (state.route && routeFinalized) {
           const routeData: Record<string, unknown> = {
-            waypoints: lastWaypoints || [],
-            distance_miles: lastRouteResult.distance_miles,
-            distance_km: lastRouteResult.distance_km,
-            estimated_time_minutes: lastRouteResult.duration_minutes,
-            elevation_gain_ft: lastElevationResult
-              ? lastElevationResult.total_ascent_ft
+            waypoints: state.waypoints || [],
+            distance_miles: state.route.distance_miles,
+            distance_km: state.route.distance_km,
+            estimated_time_minutes: state.route.duration_minutes,
+            elevation_gain_ft: state.elevation
+              ? state.elevation.total_ascent_ft
               : 0,
-            elevation_loss_ft: lastElevationResult
-              ? lastElevationResult.total_descent_ft
+            elevation_loss_ft: state.elevation
+              ? state.elevation.total_descent_ft
               : 0,
-            route_geometry: lastRouteResult.geometry,
-            elevation_profile: lastElevationResult
-              ? lastElevationResult.elevation_profile
+            route_geometry: state.route.geometry,
+            elevation_profile: state.elevation
+              ? state.elevation.elevation_profile
               : [],
             name:
               extractRouteName(message.content || "") ||
-              `${lastRouteResult.distance_miles}mi Run`,
+              `${state.route.distance_miles}mi Run`,
           };
           send({ type: "route_data", route: routeData });
         }
