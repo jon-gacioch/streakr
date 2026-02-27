@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import mapboxgl from "mapbox-gl";
-import { RouteData } from "@/lib/types";
+import { RouteData, WaypointDetail, PointOfInterest } from "@/lib/types";
 
 interface RouteLayerProps {
   map: mapboxgl.Map;
@@ -66,10 +66,13 @@ function getMileMarkerPositions(
 
 export default function RouteLayer({ map, routeData }: RouteLayerProps) {
   const markersRef = useRef<mapboxgl.Marker[]>([]);
+  const popupsRef = useRef<mapboxgl.Popup[]>([]);
 
   useEffect(() => {
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
+    popupsRef.current.forEach((p) => p.remove());
+    popupsRef.current = [];
 
     if (!map || !map.getStyle()) return;
 
@@ -80,6 +83,7 @@ export default function RouteLayer({ map, routeData }: RouteLayerProps) {
     if (!routeData?.route_geometry) return;
 
     const geometry = routeData.route_geometry as GeoJSON.LineString;
+    const details = routeData.waypoint_details;
 
     map.addSource(ROUTE_SOURCE, {
       type: "geojson",
@@ -111,10 +115,14 @@ export default function RouteLayer({ map, routeData }: RouteLayerProps) {
 
     const coords = geometry.coordinates;
     if (coords.length > 0) {
+      const startDetail = details?.[0];
       const startEl = createMarkerEl("#22C55E", "S");
       const startMarker = new mapboxgl.Marker({ element: startEl })
         .setLngLat(coords[0] as [number, number])
         .addTo(map);
+      if (startDetail) {
+        attachWaypointPopup(map, startEl, startMarker, startDetail, popupsRef);
+      }
       markersRef.current.push(startMarker);
 
       const lastCoord = coords[coords.length - 1];
@@ -123,10 +131,14 @@ export default function RouteLayer({ map, routeData }: RouteLayerProps) {
         Math.abs(coords[0][1] - lastCoord[1]) < 0.001;
 
       if (!isLoop) {
+        const endDetail = details?.[details.length - 1];
         const endEl = createMarkerEl("#EF4444", "E");
         const endMarker = new mapboxgl.Marker({ element: endEl })
           .setLngLat(lastCoord as [number, number])
           .addTo(map);
+        if (endDetail) {
+          attachWaypointPopup(map, endEl, endMarker, endDetail, popupsRef);
+        }
         markersRef.current.push(endMarker);
       }
 
@@ -141,14 +153,56 @@ export default function RouteLayer({ map, routeData }: RouteLayerProps) {
 
       if (routeData.waypoints && routeData.waypoints.length > 2) {
         const innerWaypoints = routeData.waypoints.slice(1, -1);
-        innerWaypoints.forEach((wp) => {
-          const wpEl = document.createElement("div");
-          wpEl.className = "waypoint-dot";
-          wpEl.style.cssText =
-            "width:10px;height:10px;background:#F97316;border:2px solid white;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.3);";
-          const marker = new mapboxgl.Marker({ element: wpEl })
+        const innerDetails = details?.slice(1, -1);
+        innerWaypoints.forEach((wp, i) => {
+          const wrapper = document.createElement("div");
+          wrapper.style.cssText = "cursor:pointer;padding:4px;";
+
+          const dot = document.createElement("div");
+          dot.className = "waypoint-dot";
+          dot.style.cssText =
+            "width:12px;height:12px;background:#F97316;border:2px solid white;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.3);transition:transform 0.15s ease;";
+          wrapper.appendChild(dot);
+
+          wrapper.addEventListener("mouseenter", () => {
+            dot.style.transform = "scale(1.4)";
+          });
+          wrapper.addEventListener("mouseleave", () => {
+            dot.style.transform = "scale(1)";
+          });
+
+          const marker = new mapboxgl.Marker({ element: wrapper, anchor: "center" })
             .setLngLat([wp[1], wp[0]])
             .addTo(map);
+          const detail = innerDetails?.[i];
+          if (detail) {
+            attachWaypointPopup(map, wrapper, marker, detail, popupsRef);
+          }
+          markersRef.current.push(marker);
+        });
+      }
+
+      if (routeData.points_of_interest?.length) {
+        routeData.points_of_interest.forEach((poi) => {
+          const wrapper = document.createElement("div");
+          wrapper.style.cssText = "cursor:pointer;padding:4px;";
+
+          const diamond = document.createElement("div");
+          diamond.style.cssText =
+            "width:14px;height:14px;background:#8B5CF6;border:2px solid white;border-radius:3px;box-shadow:0 1px 4px rgba(0,0,0,0.3);transform:rotate(45deg);transition:transform 0.15s ease;";
+          wrapper.appendChild(diamond);
+
+          wrapper.addEventListener("mouseenter", () => {
+            diamond.style.transform = "rotate(45deg) scale(1.3)";
+          });
+          wrapper.addEventListener("mouseleave", () => {
+            diamond.style.transform = "rotate(45deg) scale(1)";
+          });
+
+          const marker = new mapboxgl.Marker({ element: wrapper, anchor: "center" })
+            .setLngLat([poi.lng, poi.lat])
+            .addTo(map);
+          attachPoiPopup(map, wrapper, marker, poi, popupsRef);
           markersRef.current.push(marker);
         });
       }
@@ -165,6 +219,121 @@ export default function RouteLayer({ map, routeData }: RouteLayerProps) {
   }, [map, routeData]);
 
   return null;
+}
+
+function attachWaypointPopup(
+  map: mapboxgl.Map,
+  el: HTMLElement,
+  marker: mapboxgl.Marker,
+  detail: WaypointDetail,
+  popupsRef: React.MutableRefObject<mapboxgl.Popup[]>
+) {
+  const popup = new mapboxgl.Popup({
+    closeButton: false,
+    closeOnClick: false,
+    offset: 12,
+    className: "waypoint-popup",
+    maxWidth: "220px",
+  }).setHTML(
+    `<div style="font-family:system-ui,sans-serif;">` +
+      `<div style="font-weight:700;font-size:13px;color:#1E293B;margin-bottom:2px;">${escapeHtml(detail.name)}</div>` +
+      `<div style="font-size:11px;color:#64748B;line-height:1.35;">${escapeHtml(detail.reason)}</div>` +
+      `</div>`
+  );
+
+  const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+
+  if (isTouchDevice) {
+    let isOpen = false;
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (isOpen) {
+        popup.remove();
+        isOpen = false;
+      } else {
+        popupsRef.current.forEach((p) => p.remove());
+        popup.setLngLat(marker.getLngLat()).addTo(map);
+        isOpen = true;
+      }
+    });
+    map.on("click", () => {
+      if (isOpen) {
+        popup.remove();
+        isOpen = false;
+      }
+    });
+  } else {
+    el.addEventListener("mouseenter", () => {
+      popup.setLngLat(marker.getLngLat()).addTo(map);
+    });
+    el.addEventListener("mouseleave", () => {
+      popup.remove();
+    });
+  }
+
+  popupsRef.current.push(popup);
+}
+
+function attachPoiPopup(
+  map: mapboxgl.Map,
+  el: HTMLElement,
+  marker: mapboxgl.Marker,
+  poi: PointOfInterest,
+  popupsRef: React.MutableRefObject<mapboxgl.Popup[]>
+) {
+  const popup = new mapboxgl.Popup({
+    closeButton: false,
+    closeOnClick: false,
+    offset: 14,
+    className: "waypoint-popup poi-popup",
+    maxWidth: "240px",
+  }).setHTML(
+    `<div style="font-family:system-ui,sans-serif;">` +
+      `<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">` +
+      `<span style="font-size:13px;">✦</span>` +
+      `<span style="font-weight:700;font-size:13px;color:#1E293B;">${escapeHtml(poi.name)}</span>` +
+      `</div>` +
+      `<div style="font-size:11px;color:#64748B;line-height:1.35;">${escapeHtml(poi.description)}</div>` +
+      `</div>`
+  );
+
+  const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+
+  if (isTouchDevice) {
+    let isOpen = false;
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (isOpen) {
+        popup.remove();
+        isOpen = false;
+      } else {
+        popupsRef.current.forEach((p) => p.remove());
+        popup.setLngLat(marker.getLngLat()).addTo(map);
+        isOpen = true;
+      }
+    });
+    map.on("click", () => {
+      if (isOpen) {
+        popup.remove();
+        isOpen = false;
+      }
+    });
+  } else {
+    el.addEventListener("mouseenter", () => {
+      popup.setLngLat(marker.getLngLat()).addTo(map);
+    });
+    el.addEventListener("mouseleave", () => {
+      popup.remove();
+    });
+  }
+
+  popupsRef.current.push(popup);
+}
+
+function escapeHtml(text: string): string {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 function createMarkerEl(color: string, letter: string): HTMLDivElement {

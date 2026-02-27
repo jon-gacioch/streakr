@@ -1,5 +1,19 @@
+export interface WaypointDetail {
+  name: string;
+  reason: string;
+}
+
+export interface PointOfInterest {
+  name: string;
+  description: string;
+  lat: number;
+  lng: number;
+}
+
 export interface RouteData {
   waypoints: [number, number][];
+  waypoint_details?: WaypointDetail[];
+  points_of_interest?: PointOfInterest[];
   distance_miles: number;
   distance_km: number;
   estimated_time_minutes: number;

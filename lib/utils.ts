@@ -46,5 +46,9 @@ export function parseRouteFromMessage(content: string) {
 }
 
 export function stripRouteBlock(content: string): string {
-  return content.replace(/```route\s*\n[\s\S]*?\n```/g, "").trim();
+  return content
+    .replace(/```route\s*\n[\s\S]*?\n```/g, "")
+    .replace(/```waypoint_details\s*\n[\s\S]*?\n```/g, "")
+    .replace(/```points_of_interest\s*\n[\s\S]*?\n```/g, "")
+    .trim();
 }

@@ -32,6 +32,21 @@ body {
   font-size: 10px !important;
 }
 
+.waypoint-popup .mapboxgl-popup-content {
+  padding: 8px 10px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 1px solid #E7E5E4;
+}
+
+.waypoint-popup .mapboxgl-popup-tip {
+  border-top-color: white;
+}
+
+.poi-popup .mapboxgl-popup-content {
+  border-left: 3px solid #8B5CF6;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
 }

@@ -221,6 +221,8 @@ export async function POST(req: Request) {
         if (state.route && routeFinalized) {
           const routeData: Record<string, unknown> = {
             waypoints: state.waypoints || [],
+            waypoint_details: extractWaypointDetails(message.content || ""),
+            points_of_interest: extractPointsOfInterest(message.content || ""),
             distance_miles: state.route.distance_miles,
             distance_km: state.route.distance_km,
             estimated_time_minutes: state.route.duration_minutes,
@@ -261,6 +263,64 @@ export async function POST(req: Request) {
       Connection: "keep-alive",
     },
   });
+}
+
+function extractWaypointDetails(
+  content: string
+): { name: string; reason: string }[] | undefined {
+  const match = content.match(
+    /```waypoint_details\s*\n([\s\S]*?)```/
+  );
+  if (!match) return undefined;
+  try {
+    const parsed = JSON.parse(match[1]);
+    if (!Array.isArray(parsed)) return undefined;
+    const results: { name: string; reason: string }[] = [];
+    for (const d of parsed) {
+      if (
+        typeof d === "object" &&
+        d !== null &&
+        typeof d.name === "string" &&
+        typeof d.reason === "string"
+      ) {
+        results.push({ name: d.name, reason: d.reason });
+      }
+    }
+    return results.length > 0 ? results : undefined;
+  } catch {
+    // malformed JSON — skip
+  }
+  return undefined;
+}
+
+function extractPointsOfInterest(
+  content: string
+): { name: string; description: string; lat: number; lng: number }[] | undefined {
+  const match = content.match(
+    /```points_of_interest\s*\n([\s\S]*?)```/
+  );
+  if (!match) return undefined;
+  try {
+    const parsed = JSON.parse(match[1]);
+    if (!Array.isArray(parsed)) return undefined;
+    const results: { name: string; description: string; lat: number; lng: number }[] = [];
+    for (const d of parsed) {
+      if (
+        typeof d === "object" &&
+        d !== null &&
+        typeof d.name === "string" &&
+        typeof d.description === "string" &&
+        typeof d.lat === "number" &&
+        typeof d.lng === "number"
+      ) {
+        results.push({ name: d.name, description: d.description, lat: d.lat, lng: d.lng });
+      }
+    }
+    return results.length > 0 ? results : undefined;
+  } catch {
+    // malformed JSON — skip
+  }
+  return undefined;
 }
 
 function extractRouteName(content: string): string | null {
