@@ -32,6 +32,7 @@ export interface ChatMessage {
 export interface ToolCallEvent {
   name: string;
   status: "running" | "done" | "error";
+  detail?: string;
 }
 
 export interface StreamEvent {
@@ -44,6 +45,7 @@ export interface StreamEvent {
     | "error";
   name?: string;
   content?: string;
+  detail?: string;
   route?: RouteData;
   error?: string;
 }

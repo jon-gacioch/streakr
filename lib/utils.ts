@@ -25,15 +25,6 @@ export function formatDuration(minutes: number): string {
   return `${hrs}h ${mins}m`;
 }
 
-export function toolDisplayName(toolName: string): string {
-  const names: Record<string, string> = {
-    geocode: "Finding location...",
-    search_places: "Searching for parks & trails nearby...",
-    get_route: "Calculating route...",
-    get_elevation: "Getting elevation data...",
-  };
-  return names[toolName] || `Running ${toolName}...`;
-}
 
 export function parseRouteFromMessage(content: string) {
   const routeMatch = content.match(/```route\s*\n([\s\S]*?)\n```/);

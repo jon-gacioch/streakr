@@ -98,6 +98,55 @@ export default function Home() {
         let buffer = "";
         let pendingRoute: RouteData | null = null;
 
+        const processLine = (line: string) => {
+          if (!line.startsWith("data: ")) return;
+          try {
+            const event: StreamEvent = JSON.parse(line.slice(6));
+
+            switch (event.type) {
+              case "tool_start":
+                setToolCalls((prev) => [
+                  ...prev,
+                  { name: event.name!, status: "running", detail: event.detail },
+                ]);
+                break;
+
+              case "tool_end":
+                setToolCalls((prev) =>
+                  prev.map((t) =>
+                    t.name === event.name && t.status === "running"
+                      ? {
+                          ...t,
+                          status: event.error ? "error" : "done",
+                          detail: event.detail || event.error || t.detail,
+                        }
+                      : t
+                  )
+                );
+                break;
+
+              case "text_delta":
+                fullContent += event.content || "";
+                break;
+
+              case "route_data":
+                if (event.route) {
+                  pendingRoute = event.route;
+                }
+                break;
+
+              case "error":
+                fullContent = `Sorry, something went wrong: ${event.error}`;
+                break;
+
+              case "done":
+                break;
+            }
+          } catch (e) {
+            console.warn("[STREAKR] Failed to parse SSE event:", line.slice(0, 200), e);
+          }
+        };
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -107,58 +156,21 @@ export default function Home() {
           buffer = lines.pop() || "";
 
           for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            try {
-              const event: StreamEvent = JSON.parse(line.slice(6));
-
-              switch (event.type) {
-                case "tool_start":
-                  setToolCalls((prev) => [
-                    ...prev,
-                    { name: event.name!, status: "running" },
-                  ]);
-                  break;
-
-                case "tool_end":
-                  setToolCalls((prev) =>
-                    prev.map((t) =>
-                      t.name === event.name && t.status === "running"
-                        ? { ...t, status: event.error ? "error" : "done" }
-                        : t
-                    )
-                  );
-                  break;
-
-                case "text_delta":
-                  fullContent += event.content || "";
-                  break;
-
-                case "route_data":
-                  if (event.route) {
-                    pendingRoute = event.route;
-                  }
-                  break;
-
-                case "error":
-                  fullContent = `Sorry, something went wrong: ${event.error}`;
-                  break;
-
-                case "done":
-                  break;
-              }
-            } catch {
-              // skip malformed SSE chunks
-            }
+            processLine(line);
           }
         }
 
-        if (fullContent) {
-          const assistantMsg: ChatMessage = {
-            role: "assistant",
-            content: fullContent,
-          };
-          setMessages((prev) => [...prev, assistantMsg]);
+        // Process any remaining data left in the buffer after stream ends
+        if (buffer.trim()) {
+          processLine(buffer.trim());
         }
+
+        const finalContent = fullContent || "Sorry, I wasn't able to generate a response. Please try again!";
+        const assistantMsg: ChatMessage = {
+          role: "assistant",
+          content: finalContent,
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
 
         if (pendingRoute) {
           setRouteData(pendingRoute);
