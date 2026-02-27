@@ -60,10 +60,11 @@ export default function Home() {
     setIsLoading(false);
   }, []);
 
-  const handleSend = useCallback(
-    async (content: string) => {
+  const sendMessage = useCallback(
+    async (content: string, baseMessages?: ChatMessage[]) => {
       const userMsg: ChatMessage = { role: "user", content };
-      const updatedMessages = [...messages, userMsg];
+      const prior = baseMessages ?? messages;
+      const updatedMessages = [...prior, userMsg];
       setMessages(updatedMessages);
       setIsLoading(true);
       setToolCalls([]);
@@ -181,6 +182,27 @@ export default function Home() {
     [messages, routeData, userLocation]
   );
 
+  const handleSend = useCallback(
+    (content: string) => sendMessage(content),
+    [sendMessage]
+  );
+
+  const handleRegenerate = useCallback(() => {
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+    if (!lastUserMsg || isLoading) return;
+
+    const lastUserIndex = messages.length - 1 - [...messages].reverse().findIndex((m) => m.role === "user");
+    const messagesBeforeLastExchange = messages.slice(0, lastUserIndex);
+
+    setMessages(messagesBeforeLastExchange);
+    setRouteData(null);
+    setToolCalls([]);
+
+    setTimeout(() => {
+      sendMessage(lastUserMsg.content, messagesBeforeLastExchange);
+    }, 0);
+  }, [messages, isLoading, sendMessage]);
+
   const chatPanel = (
     <ChatPanel
       messages={messages}
@@ -188,6 +210,7 @@ export default function Home() {
       isLoading={isLoading}
       routeData={routeData}
       onSend={handleSend}
+      onRegenerate={handleRegenerate}
     />
   );
 
