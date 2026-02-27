@@ -1,7 +1,7 @@
 "use client";
 
 import { RouteData } from "@/lib/types";
-import { formatDuration } from "@/lib/utils";
+import { formatDuration, formatPace } from "@/lib/utils";
 import ElevationChart from "./ElevationChart";
 import GpxExport from "./GpxExport";
 
@@ -30,7 +30,7 @@ export default function RouteInfoPanel({ routeData }: RouteInfoPanelProps) {
         <StatBlock
           label="Est. Time"
           value={formatDuration(routeData.estimated_time_minutes)}
-          subvalue="~9:00/mi pace"
+          subvalue={`~${formatPace(routeData.estimated_time_minutes, routeData.distance_miles)}/mi pace`}
         />
         <StatBlock
           label="Elevation"

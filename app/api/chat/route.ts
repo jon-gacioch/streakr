@@ -10,7 +10,7 @@ import {
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const { messages, currentRoute } = (await req.json()) as {
+  const { messages, currentRoute, userLocation } = (await req.json()) as {
     messages: ChatCompletionMessageParam[];
     currentRoute?: {
       waypoints: [number, number][];
@@ -21,10 +21,19 @@ export async function POST(req: Request) {
       elevation_loss_ft: number;
       name: string;
     };
+    userLocation?: { lat: number; lng: number };
   };
 
   const fullMessages: ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
+    ...(userLocation
+      ? [
+          {
+            role: "system" as const,
+            content: `USER'S CURRENT LOCATION (from browser geolocation): lat ${userLocation.lat}, lng ${userLocation.lng}. When the user says "near me", "from here", "my location", "where I am", or similar — use these coordinates directly as the starting point instead of geocoding. Pass them to search_places and as the first waypoint for get_route. Do NOT ask the user for an address when you already have their coordinates.`,
+          },
+        ]
+      : []),
     ...messages,
   ];
 

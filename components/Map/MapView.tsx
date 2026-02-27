@@ -10,7 +10,7 @@ interface MapViewProps {
   routeData: RouteData | null;
 }
 
-const DEFAULT_CENTER: [number, number] = [-115.1398, 36.1699]; // Las Vegas
+const FALLBACK_CENTER: [number, number] = [-115.1398, 36.1699];
 const DEFAULT_ZOOM = 12;
 
 export default function MapView({ routeData }: MapViewProps) {
@@ -26,7 +26,7 @@ export default function MapView({ routeData }: MapViewProps) {
     const map = new mapboxgl.Map({
       container: mapContainer.current,
       style: "mapbox://styles/mapbox/outdoors-v12",
-      center: DEFAULT_CENTER,
+      center: FALLBACK_CENTER,
       zoom: DEFAULT_ZOOM,
       attributionControl: false,
     });
@@ -39,6 +39,16 @@ export default function MapView({ routeData }: MapViewProps) {
     map.on("load", () => {
       setMapLoaded(true);
     });
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        map.flyTo({
+          center: [pos.coords.longitude, pos.coords.latitude],
+          zoom: DEFAULT_ZOOM,
+        });
+      },
+      () => {} // permission denied or unavailable — keep fallback
+    );
 
     mapRef.current = map;
 
@@ -62,7 +72,7 @@ export default function MapView({ routeData }: MapViewProps) {
       );
       mapRef.current.fitBounds(bounds, { padding: 60 });
     } else {
-      mapRef.current.flyTo({ center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM });
+      mapRef.current.flyTo({ center: FALLBACK_CENTER, zoom: DEFAULT_ZOOM });
     }
   };
 

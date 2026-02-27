@@ -13,6 +13,57 @@ const ROUTE_SOURCE = "route-source";
 const ROUTE_LAYER = "route-layer";
 const ROUTE_OUTLINE = "route-outline";
 
+const METERS_PER_MILE = 1609.344;
+
+function haversineMeters(
+  lng1: number,
+  lat1: number,
+  lng2: number,
+  lat2: number
+): number {
+  const R = 6_371_000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function getMileMarkerPositions(
+  coords: number[][]
+): { lngLat: [number, number]; mile: number }[] {
+  const markers: { lngLat: [number, number]; mile: number }[] = [];
+  let cumulativeMeters = 0;
+  let nextMile = 1;
+
+  for (let i = 1; i < coords.length; i++) {
+    const segLen = haversineMeters(
+      coords[i - 1][0],
+      coords[i - 1][1],
+      coords[i][0],
+      coords[i][1]
+    );
+    const prevCumulative = cumulativeMeters;
+    cumulativeMeters += segLen;
+
+    while (nextMile * METERS_PER_MILE <= cumulativeMeters) {
+      const targetMeters = nextMile * METERS_PER_MILE;
+      const overshoot = targetMeters - prevCumulative;
+      const t = segLen > 0 ? overshoot / segLen : 0;
+
+      const lng = coords[i - 1][0] + t * (coords[i][0] - coords[i - 1][0]);
+      const lat = coords[i - 1][1] + t * (coords[i][1] - coords[i - 1][1]);
+
+      markers.push({ lngLat: [lng, lat], mile: nextMile });
+      nextMile++;
+    }
+  }
+
+  return markers;
+}
+
 export default function RouteLayer({ map, routeData }: RouteLayerProps) {
   const markersRef = useRef<mapboxgl.Marker[]>([]);
 
@@ -79,6 +130,15 @@ export default function RouteLayer({ map, routeData }: RouteLayerProps) {
         markersRef.current.push(endMarker);
       }
 
+      const milePositions = getMileMarkerPositions(coords);
+      milePositions.forEach(({ lngLat, mile }) => {
+        const el = createMileMarkerEl(mile);
+        const marker = new mapboxgl.Marker({ element: el, anchor: "center" })
+          .setLngLat(lngLat)
+          .addTo(map);
+        markersRef.current.push(marker);
+      });
+
       if (routeData.waypoints && routeData.waypoints.length > 2) {
         const innerWaypoints = routeData.waypoints.slice(1, -1);
         innerWaypoints.forEach((wp) => {
@@ -120,5 +180,41 @@ function createMarkerEl(color: string, letter: string): HTMLDivElement {
     cursor: pointer;
   `;
   el.textContent = letter;
+  return el;
+}
+
+function createMileMarkerEl(mile: number): HTMLDivElement {
+  const el = document.createElement("div");
+  el.style.cssText = `
+    display: flex; align-items: center; gap: 0;
+    pointer-events: auto; cursor: default;
+    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35));
+  `;
+
+  const flag = document.createElement("div");
+  flag.style.cssText = `
+    background: #1E293B;
+    color: #F8FAFC;
+    font-size: 11px; font-weight: 700;
+    line-height: 1;
+    padding: 3px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    border: 1.5px solid rgba(255,255,255,0.5);
+  `;
+  flag.textContent = `MI ${mile}`;
+
+  const tick = document.createElement("div");
+  tick.style.cssText = `
+    width: 8px; height: 8px;
+    background: #1E293B;
+    border-radius: 50%;
+    border: 2px solid white;
+    margin-left: -4px;
+    flex-shrink: 0;
+  `;
+
+  el.appendChild(flag);
+  el.appendChild(tick);
   return el;
 }

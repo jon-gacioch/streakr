@@ -35,13 +35,17 @@ export async function getRoute(waypoints: [number, number][]) {
 
   const props = feature.properties.summary;
 
+  const distanceMiles = +(props.distance * 0.000621371).toFixed(2);
+  const DEFAULT_RUNNING_PACE_MIN_PER_MILE = 9;
+  const runningDurationMinutes = +(distanceMiles * DEFAULT_RUNNING_PACE_MIN_PER_MILE).toFixed(1);
+
   return {
     geometry: feature.geometry,
     distance_meters: props.distance,
-    distance_miles: +(props.distance * 0.000621371).toFixed(2),
+    distance_miles: distanceMiles,
     distance_km: +(props.distance / 1000).toFixed(2),
     duration_seconds: props.duration,
-    duration_minutes: +(props.duration / 60).toFixed(1),
+    duration_minutes: runningDurationMinutes,
     steps: feature.properties.segments?.[0]?.steps?.map(
       (s: { instruction: string; distance: number; name: string }) => ({
         instruction: s.instruction,

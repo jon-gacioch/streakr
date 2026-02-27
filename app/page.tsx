@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { ChatMessage, RouteData, ToolCallEvent, StreamEvent } from "@/lib/types";
 import ChatPanel from "@/components/Chat/ChatPanel";
@@ -39,7 +39,15 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [toolCalls, setToolCalls] = useState<ToolCallEvent[]>([]);
   const [routeData, setRouteData] = useState<RouteData | null>(null);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {}
+    );
+  }, []);
 
   const handleNewRoute = useCallback(() => {
     if (abortRef.current) {
@@ -72,6 +80,7 @@ export default function Home() {
               content: m.content,
             })),
             currentRoute: routeData,
+            userLocation,
           }),
           signal: abortRef.current.signal,
         });
@@ -169,7 +178,7 @@ export default function Home() {
         abortRef.current = null;
       }
     },
-    [messages]
+    [messages, routeData, userLocation]
   );
 
   const chatPanel = (
