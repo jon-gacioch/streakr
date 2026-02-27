@@ -1,65 +1,228 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useCallback, useRef } from "react";
+import dynamic from "next/dynamic";
+import { ChatMessage, RouteData, ToolCallEvent, StreamEvent } from "@/lib/types";
+import ChatPanel from "@/components/Chat/ChatPanel";
+import DesktopLayout from "@/components/Layout/DesktopLayout";
+import MobileLayout from "@/components/Layout/MobileLayout";
+import GpxExport from "@/components/Route/GpxExport";
+
+const MapView = dynamic(() => import("@/components/Map/MapView"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full w-full items-center justify-center bg-stone-100">
+      <div className="flex flex-col items-center gap-2 text-stone-400">
+        <svg className="h-8 w-8 animate-spin" viewBox="0 0 24 24" fill="none">
+          <circle
+            className="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            strokeWidth="4"
+          />
+          <path
+            className="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+          />
+        </svg>
+        <span className="text-sm">Loading map...</span>
+      </div>
+    </div>
+  ),
+});
 
 export default function Home() {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [toolCalls, setToolCalls] = useState<ToolCallEvent[]>([]);
+  const [routeData, setRouteData] = useState<RouteData | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const handleNewRoute = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setMessages([]);
+    setToolCalls([]);
+    setRouteData(null);
+    setIsLoading(false);
+  }, []);
+
+  const handleSend = useCallback(
+    async (content: string) => {
+      const userMsg: ChatMessage = { role: "user", content };
+      const updatedMessages = [...messages, userMsg];
+      setMessages(updatedMessages);
+      setIsLoading(true);
+      setToolCalls([]);
+
+      abortRef.current = new AbortController();
+
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: updatedMessages.map((m) => ({
+              role: m.role,
+              content: m.content,
+            })),
+            currentRoute: routeData,
+          }),
+          signal: abortRef.current.signal,
+        });
+
+        if (!res.ok) {
+          throw new Error(`Server error: ${res.status}`);
+        }
+
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error("No response stream");
+
+        const decoder = new TextDecoder();
+        let fullContent = "";
+        let buffer = "";
+        let pendingRoute: RouteData | null = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              const event: StreamEvent = JSON.parse(line.slice(6));
+
+              switch (event.type) {
+                case "tool_start":
+                  setToolCalls((prev) => [
+                    ...prev,
+                    { name: event.name!, status: "running" },
+                  ]);
+                  break;
+
+                case "tool_end":
+                  setToolCalls((prev) =>
+                    prev.map((t) =>
+                      t.name === event.name && t.status === "running"
+                        ? { ...t, status: event.error ? "error" : "done" }
+                        : t
+                    )
+                  );
+                  break;
+
+                case "text_delta":
+                  fullContent += event.content || "";
+                  break;
+
+                case "route_data":
+                  if (event.route) {
+                    pendingRoute = event.route;
+                  }
+                  break;
+
+                case "error":
+                  fullContent = `Sorry, something went wrong: ${event.error}`;
+                  break;
+
+                case "done":
+                  break;
+              }
+            } catch {
+              // skip malformed SSE chunks
+            }
+          }
+        }
+
+        if (fullContent) {
+          const assistantMsg: ChatMessage = {
+            role: "assistant",
+            content: fullContent,
+          };
+          setMessages((prev) => [...prev, assistantMsg]);
+        }
+
+        if (pendingRoute) {
+          setRouteData(pendingRoute);
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        const errorMsg =
+          err instanceof Error ? err.message : "Something went wrong";
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `Sorry, I hit a snag: ${errorMsg}. Please try again!`,
+          },
+        ]);
+      } finally {
+        setIsLoading(false);
+        abortRef.current = null;
+      }
+    },
+    [messages]
+  );
+
+  const chatPanel = (
+    <ChatPanel
+      messages={messages}
+      toolCalls={toolCalls}
+      isLoading={isLoading}
+      routeData={routeData}
+      onSend={handleSend}
+    />
+  );
+
+  const mapView = <MapView routeData={routeData} />;
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="h-screen flex flex-col">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-stone-200 bg-white px-4">
+        <div className="flex items-center gap-2">
+          <span className="text-xl font-extrabold tracking-tight text-stone-900">
+            STREAKR
+          </span>
+          <span className="text-orange-500 text-lg">⚡</span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div className="flex items-center gap-3">
+          {(messages.length > 0 || routeData) && (
+            <button
+              onClick={handleNewRoute}
+              className="flex items-center gap-1.5 rounded-full bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-600 transition-colors hover:bg-orange-100 active:bg-orange-200"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                className="h-3.5 w-3.5"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.932.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-1.242l.842.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.241l-.84-.84v1.371a.75.75 0 0 1-1.5 0V9.591a.75.75 0 0 1 .75-.75H5.35a.75.75 0 0 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.932.75.75 0 0 1 1.025-.273Z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              New Route
+            </button>
+          )}
+          {routeData && <GpxExport routeData={routeData} />}
+          <span className="hidden sm:block text-xs text-stone-400 italic">
+            New city. Same streak.
+          </span>
         </div>
-      </main>
+      </header>
+
+      <DesktopLayout chatPanel={chatPanel} mapView={mapView} />
+      <MobileLayout chatPanel={chatPanel} mapView={mapView} />
     </div>
   );
 }
